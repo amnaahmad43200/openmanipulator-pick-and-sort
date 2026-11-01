@@ -20,6 +20,25 @@ GRIPPER_CLOSE_LIM = -0.02
 GRIPPER_STEP = -0.001
 GRIPPER_SIZE_THRESHOLD = -0.004
 
+# Block edge lengths (metres) spawned in simulation.
+SMALL_BLOCK = 0.0225
+LARGE_BLOCK = 0.045
+
+# Simulation stand-in for a real block stopping the fingers. Mock hardware has
+# no physics, so the gripper would always close fully. We assume the gap
+# between the fingers is  SIM_GAP_AT_ZERO + 2 * joint_position  and choose
+# SIM_GAP_AT_ZERO so that GRIPPER_SIZE_THRESHOLD sits exactly halfway between
+# the two block sizes. This is a calibration assumption, not a measurement of
+# the real gripper.
+SIM_GAP_AT_ZERO = (
+    (SMALL_BLOCK + LARGE_BLOCK) / 2.0 - 2.0 * GRIPPER_SIZE_THRESHOLD
+)
+
+
+def sim_stop_position(block_size):
+    """Gripper joint position at which a block of this size stops the fingers."""
+    return (block_size - SIM_GAP_AT_ZERO) / 2.0
+
 
 # Joint-space waypoints from the coursework.
 pick_poses = [
@@ -229,14 +248,25 @@ class PickAndPlace:
             scene.process_attached_collision_object(attached_collision_object)
             scene.current_state.update()
 
-    def grip(self):
-        # Close in small steps, as in the original coursework implementation.
+    def grip(self, stop_position=None):
+        """Close the gripper in small steps.
+
+        On the real arm a block stops the fingers, so stop_position is None and
+        we close fully. In simulation nothing stops them, so the caller passes
+        the position where the spawned block would, and we stop there.
+        """
         for value in np.arange(
             GRIPPER_OPEN_LIM,
             GRIPPER_CLOSE_LIM,
             GRIPPER_STEP,
         ):
-            self._plan_and_execute("gripper", [float(value), float(value)])
+            target = float(value)
+            reached_block = stop_position is not None and target <= stop_position
+            if reached_block:
+                target = stop_position
+            self._plan_and_execute("gripper", [target, target])
+            if reached_block:
+                break
 
     def release(self):
         # Open in small steps to avoid large gripper commands.
@@ -319,9 +349,11 @@ def main(args=None):
             if user_input == "q":
                 break
 
+            block_size = None
             if sim_mode:
+                block_size = random.choice((SMALL_BLOCK, LARGE_BLOCK))
                 controller.remove_block()
-                controller.add_block(random.choice((0.0225, 0.045)))
+                controller.add_block(block_size)
 
             # Pick the block and close the gripper.
             if not controller.execute_move_sequence(pick_poses, "pick"):
@@ -329,9 +361,19 @@ def main(args=None):
                 attempts += 1
                 continue
 
-            controller.grip()
-            rclpy.spin_once(node, timeout_sec=0.1)
+            controller.grip(
+                stop_position=sim_stop_position(block_size) if sim_mode else None
+            )
+            # Let a few joint-state messages arrive so we read the settled
+            # gripper position, not a stale one from mid-motion.
+            for _ in range(5):
+                rclpy.spin_once(node, timeout_sec=0.1)
             object_type = controller.inspect_object()
+
+            if sim_mode:
+                spawned = "small" if block_size == SMALL_BLOCK else "large"
+                detected = "small" if object_type == 0 else "large"
+                print(f"Spawned {spawned} block, detected {detected}.", flush=True)
 
             if sim_mode:
                 controller.attach_block()
