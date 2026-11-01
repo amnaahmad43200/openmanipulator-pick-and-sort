@@ -298,9 +298,13 @@ def main(args=None):
         if not rclpy.ok():
             return
 
-        # Add the static test cube once at startup, not after every attempt.
+        # Show a test cube briefly so you can confirm scene objects appear in
+        # RViz, then remove it. It must not stay: it sits where the arm places
+        # blocks, so leaving it makes the place goal pose collide.
         if sim_mode:
             controller.add_test_box()
+            time.sleep(2.0)
+            controller.remove_test_box()
 
         # Start with the gripper open.
         controller.release()
@@ -363,6 +367,10 @@ def main(args=None):
     except (KeyboardInterrupt, EOFError):
         print("Challenge interrupted; shutting down.", flush=True)
     finally:
+        # Shut MoveItPy down first: it owns its own node and threads, and
+        # tearing them down after rclpy causes a segfault on exit.
+        if controller is not None:
+            controller.moveit.shutdown()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

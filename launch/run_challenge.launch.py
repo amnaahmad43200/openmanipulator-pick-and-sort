@@ -2,11 +2,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import (
-    DeclareLaunchArgument,
-    IncludeLaunchDescription,
-    SetLaunchConfiguration,
-)
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
@@ -32,6 +28,4 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(moveit_launch),
             launch_arguments={"use_sim": 'false', "start_rviz": "true"}.items(),
         ),
-        # Reset this so the bringup launch does not open its own RViz later.
-        SetLaunchConfiguration("start_rviz", "false"),
     ])
