@@ -2,7 +2,7 @@
 
 A ROS 2 package that makes an [OpenManipulator-X](https://emanual.robotis.com/docs/en/platform/openmanipulator_x/overview/) arm pick up a block, **measure its size with the gripper**, and sort it into a left or right bin. Motion is planned with MoveIt 2 (`moveit_py`) and runs against mock hardware in RViz.
 
-![Demo of the arm sorting small and large blocks]([docs/demo.gif])
+![Demo of the arm sorting small and large blocks](docs/demo.gif)
 
 ## What it does
 
