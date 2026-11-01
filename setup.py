@@ -24,9 +24,9 @@ setup(
     ],
     install_requires=["setuptools"],
     zip_safe=True,
-    maintainer="OpenManipulator Lab",
-    maintainer_email="maintainers@example.com",
-    description="ROS 2 teaching package for the OpenManipulator pick-and-sort challenge.",
+    maintainer="Amna Ahmad",
+    maintainer_email="amnaahmad43200@gmail.com",
+    description="ROS 2 pick-and-sort demo for the OpenManipulator-X using MoveIt 2.",
     license="Apache-2.0",
     tests_require=["pytest"],
     entry_points={

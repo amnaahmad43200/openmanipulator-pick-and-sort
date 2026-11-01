@@ -2,9 +2,9 @@
 <package format="3">
   <name>openmanipulatorlab</name>
   <version>0.1.0</version>
-  <description>ROS 2 teaching package for the OpenManipulator pick-and-sort challenge.</description>
+  <description>ROS 2 pick-and-sort demo for the OpenManipulator-X using MoveIt 2.</description>
 
-  <maintainer email="maintainers@example.com">OpenManipulator Lab</maintainer>
+  <maintainer email="amnaahmad43200@gmail.com">Amna Ahmad</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_python</buildtool_depend>
