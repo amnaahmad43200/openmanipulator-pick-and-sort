@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Pick a block, measure it with the gripper, and sort it into the left or right bin."""
 
 import random
 import time
@@ -14,57 +15,13 @@ from sensor_msgs.msg import JointState
 from shape_msgs.msg import SolidPrimitive
 from std_msgs.msg import Header
 
+from openmanipulatorlab.config import load_config, sim_stop_position
 
-GRIPPER_OPEN_LIM = 0.02
-GRIPPER_CLOSE_LIM = -0.02
-GRIPPER_STEP = -0.001
-GRIPPER_SIZE_THRESHOLD = -0.004
-
-# Block edge lengths (metres) spawned in simulation.
-SMALL_BLOCK = 0.0225
-LARGE_BLOCK = 0.045
-
-# Simulation stand-in for a real block stopping the fingers. Mock hardware has
-# no physics, so the gripper would always close fully. We assume the gap
-# between the fingers is  SIM_GAP_AT_ZERO + 2 * joint_position  and choose
-# SIM_GAP_AT_ZERO so that GRIPPER_SIZE_THRESHOLD sits exactly halfway between
-# the two block sizes. This is a calibration assumption, not a measurement of
-# the real gripper.
-SIM_GAP_AT_ZERO = (
-    (SMALL_BLOCK + LARGE_BLOCK) / 2.0 - 2.0 * GRIPPER_SIZE_THRESHOLD
-)
+SMALL = 0
+LARGE = 1
 
 
-def sim_stop_position(block_size):
-    """Gripper joint position at which a block of this size stops the fingers."""
-    return (block_size - SIM_GAP_AT_ZERO) / 2.0
-
-
-# Joint-space waypoints from the coursework.
-pick_poses = [
-    [0, 0.00017, 0.00136, -0.0031],
-    [-1.3358950947048042e-05, -0.1061793044936232,
-     0.6570420615335268, 0.35271669927253313],
-]
-
-place_left_poses = [
-    [0, 0.00017, 0.00136, -0.0031],
-    [1.5992864912340499, 8.415907426146138e-05,
-     1.5226615549514953e-06, 5.400218179825652e-05],
-    [1.5992663386140384, 0.35269513249348816,
-     0.19473188525619556, 0.08812983289545956],
-]
-
-place_right_poses = [
-    [0, 0.00017, 0.00136, -0.0031],
-    [-1.5992864912340499, 8.415907426146138e-05,
-     1.5226615549514953e-06, 5.400218179825652e-05],
-    [-1.5992663386140384, 0.35269513249348816,
-     0.19473188525619556, 0.08812983289545956],
-]
-
-
-def build_moveit_config():
+def build_moveit_config(cfg):
     """Build the MoveIt configuration used by this challenge."""
     moveit_config = (
         MoveItConfigsBuilder(
@@ -79,12 +36,13 @@ def build_moveit_config():
         .to_moveit_configs()
     )
 
+    planning = cfg["planning"]
     config_dict = moveit_config.to_dict()
-    config_dict["planning_pipelines"] = {"pipeline_names": ["ompl"]}
+    config_dict["planning_pipelines"] = {"pipeline_names": [planning["pipeline"]]}
     config_dict["plan_request_params"] = {
-        "planning_pipeline": "ompl",
-        "max_velocity_scaling_factor": 0.1,
-        "max_acceleration_scaling_factor": 0.1,
+        "planning_pipeline": planning["pipeline"],
+        "max_velocity_scaling_factor": planning["velocity_scaling"],
+        "max_acceleration_scaling_factor": planning["acceleration_scaling"],
     }
     return config_dict
 
@@ -92,14 +50,15 @@ def build_moveit_config():
 class PickAndPlace:
     """Wrapper for MoveIt planning, gripper control and scene objects."""
 
-    def __init__(self, node):
+    def __init__(self, node, cfg):
         print("========= Initialise pick and place system =========", flush=True)
+        self.cfg = cfg
         self.latest_joint_state = None
 
         # This class creates its own MoveItPy instance.
         self.moveit = MoveItPy(
             node_name="moveit_py",
-            config_dict=build_moveit_config(),
+            config_dict=build_moveit_config(cfg),
         )
         self.robot_model = self.moveit.get_robot_model()
         self.planning_scene_monitor = self.moveit.get_planning_scene_monitor()
@@ -135,9 +94,7 @@ class PickAndPlace:
             print(f"ERROR: Planning failed for group '{group_name}'.", flush=True)
             return False
 
-        # This is the MoveItPy execution call used by the Jazzy branch.
         # Jazzy MoveItPy infers the planning group from the trajectory.
-        # Keep the same execution call as in your original working file.
         self.moveit.execute(
             moveit_plan.trajectory,
             controllers=[],
@@ -155,7 +112,7 @@ class PickAndPlace:
             scene.apply_collision_object(collision_object)
             scene.current_state.update()
 
-    # Simulation helper: add a randomly sized block in the pick area.
+    # Simulation helper: add a block of the given size in the pick area.
     def add_block(self, box_size):
         collision_object = CollisionObject(
             header=Header(frame_id="world"),
@@ -170,7 +127,7 @@ class PickAndPlace:
             primitive_poses=[
                 Pose(
                     position=Point(
-                        x=0.2,
+                        x=self.cfg["blocks"]["spawn_x"],
                         y=0.0,
                         z=box_size / 2.0,
                     ),
@@ -255,10 +212,11 @@ class PickAndPlace:
         we close fully. In simulation nothing stops them, so the caller passes
         the position where the spawned block would, and we stop there.
         """
+        gripper = self.cfg["gripper"]
         for value in np.arange(
-            GRIPPER_OPEN_LIM,
-            GRIPPER_CLOSE_LIM,
-            GRIPPER_STEP,
+            gripper["open_limit"],
+            gripper["close_limit"],
+            gripper["step"],
         ):
             target = float(value)
             reached_block = stop_position is not None and target <= stop_position
@@ -270,10 +228,11 @@ class PickAndPlace:
 
     def release(self):
         # Open in small steps to avoid large gripper commands.
+        gripper = self.cfg["gripper"]
         for value in np.arange(
-            GRIPPER_CLOSE_LIM,
-            GRIPPER_OPEN_LIM,
-            -GRIPPER_STEP,
+            gripper["close_limit"],
+            gripper["open_limit"],
+            -gripper["step"],
         ):
             self._plan_and_execute("gripper", [float(value), float(value)])
 
@@ -304,21 +263,29 @@ class PickAndPlace:
             ) from exc
 
         gripper_position = self.latest_joint_state.position[joint_index]
-        if gripper_position < GRIPPER_SIZE_THRESHOLD:
-            return 0  # small block
-        return 1  # large block
+        if gripper_position < self.cfg["gripper"]["size_threshold"]:
+            return SMALL
+        return LARGE
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = rclpy.create_node("run_challenge")
     node.declare_parameter("sim", True)
+    node.declare_parameter("attempts", 0)  # 0 = interactive, N > 0 = run N attempts
+    node.declare_parameter("config_file", "")  # empty = installed default
     sim_mode = node.get_parameter("sim").value
+    max_attempts = node.get_parameter("attempts").value
+    config_file = node.get_parameter("config_file").value or None
 
     controller = None
     try:
-        controller = PickAndPlace(node)
+        cfg = load_config(config_file)
+        poses = cfg["poses"]
+        blocks = cfg["blocks"]
+        controller = PickAndPlace(node, cfg)
         attempts = 0
+        placed = {SMALL: 0, LARGE: 0}
 
         # Wait for a joint-state message before commanding the gripper.
         print("Waiting for /joint_states...", flush=True)
@@ -340,29 +307,35 @@ def main(args=None):
         controller.release()
 
         while rclpy.ok():
-            print(
-                f"Attempt {attempts}. Press Enter to attempt pick and place "
-                "(or enter q to quit): ",
-                flush=True,
-            )
-            user_input = input().strip().lower()
-            if user_input == "q":
-                break
+            if max_attempts > 0:
+                if attempts >= max_attempts:
+                    break
+                print(f"Attempt {attempts + 1} of {max_attempts}", flush=True)
+            else:
+                print(
+                    f"Attempt {attempts}. Press Enter to attempt pick and place "
+                    "(or enter q to quit): ",
+                    flush=True,
+                )
+                if input().strip().lower() == "q":
+                    break
 
             block_size = None
             if sim_mode:
-                block_size = random.choice((SMALL_BLOCK, LARGE_BLOCK))
+                block_size = random.choice((blocks["small"], blocks["large"]))
                 controller.remove_block()
                 controller.add_block(block_size)
 
             # Pick the block and close the gripper.
-            if not controller.execute_move_sequence(pick_poses, "pick"):
+            if not controller.execute_move_sequence(poses["pick"], "pick"):
                 print("Pick sequence failed; skipping this attempt.", flush=True)
                 attempts += 1
                 continue
 
             controller.grip(
-                stop_position=sim_stop_position(block_size) if sim_mode else None
+                stop_position=(
+                    sim_stop_position(cfg, block_size) if sim_mode else None
+                )
             )
             # Let a few joint-state messages arrive so we read the settled
             # gripper position, not a stale one from mid-motion.
@@ -371,27 +344,22 @@ def main(args=None):
             object_type = controller.inspect_object()
 
             if sim_mode:
-                spawned = "small" if block_size == SMALL_BLOCK else "large"
-                detected = "small" if object_type == 0 else "large"
+                spawned = "small" if block_size == blocks["small"] else "large"
+                detected = "small" if object_type == SMALL else "large"
                 print(f"Spawned {spawned} block, detected {detected}.", flush=True)
-
-            if sim_mode:
                 controller.attach_block()
 
             # Sort small blocks left and large blocks right.
-            if object_type == 0:
+            if object_type == SMALL:
                 placement_ok = controller.execute_move_sequence(
-                    place_left_poses,
+                    poses["place_left"],
                     "place left",
                 )
-            elif object_type == 1:
+            else:
                 placement_ok = controller.execute_move_sequence(
-                    place_right_poses,
+                    poses["place_right"],
                     "place right",
                 )
-            else:
-                print(f"Unknown object type: {object_type}", flush=True)
-                placement_ok = False
 
             if not placement_ok:
                 print(
@@ -404,7 +372,14 @@ def main(args=None):
             if sim_mode:
                 controller.detach_block()
             controller.release()
+            placed[object_type] += 1
             attempts += 1
+
+        print(
+            f"Done: {attempts} attempt(s), {placed[SMALL]} sorted left (small), "
+            f"{placed[LARGE]} sorted right (large).",
+            flush=True,
+        )
 
     except (KeyboardInterrupt, EOFError):
         print("Challenge interrupted; shutting down.", flush=True)
