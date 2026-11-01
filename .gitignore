@@ -1,0 +1,14 @@
+# colcon workspace output (never commit these)
+build/
+install/
+log/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
